@@ -1,0 +1,43 @@
+# X Timeline Digest Bot - Configuration Template
+# Copy this file to application.properties and fill in your values
+
+# ===========================
+# Spring Profile
+# ===========================
+# Use 'playwright' for production, 'fake' for testing
+spring.profiles.active=playwright
+
+# ===========================
+# Playwright Adapter Configuration
+# ===========================
+# Path to the cookies.json file exported from your browser
+# You can use "EditThisCookie" Chrome extension to export cookies
+twitter.playwright.cookies-path=/path/to/your/cookies.json
+
+# Run in headless mode (true) or visible mode (false)
+# Set to true for production servers
+twitter.playwright.headless=true
+
+# Timeout for page loading and selectors (ms)
+twitter.playwright.timeout=45000
+
+# Max number of scrolls to perform on timeline
+twitter.playwright.max-scrolls=10
+
+# ===========================
+# Kimi LLM Configuration
+# ===========================
+# Get your API key from: https://platform.moonshot.cn
+kimi.api-key=YOUR_KIMI_API_KEY_HERE
+kimi.base-url=https://api.moonshot.cn/v1
+# Model options: kimi-k2, kimi-k2-turbo-preview, kimi-k2-thinking
+kimi.model=kimi-k2-turbo-preview
+kimi.timeout=60000
+
+# ===========================
+# Discord Webhook Configuration
+# ===========================
+# Create a webhook in your Discord channel settings
+discord.webhook-url=YOUR_DISCORD_WEBHOOK_URL_HERE
+discord.enabled=true
+discord.timeout=10000

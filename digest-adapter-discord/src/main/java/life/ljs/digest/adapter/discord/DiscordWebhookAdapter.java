@@ -1,0 +1,259 @@
+package life.ljs.digest.adapter.discord;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import life.ljs.digest.domain.model.DigestBatch;
+import life.ljs.digest.domain.model.TopicCluster;
+import life.ljs.digest.domain.model.Tweet;
+import life.ljs.digest.domain.port.DiscordPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+
+@Component
+@Profile("!fake")
+public class DiscordWebhookAdapter implements DiscordPort {
+
+    private static final Logger log = LoggerFactory.getLogger(DiscordWebhookAdapter.class);
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final int DISCORD_FIELD_LIMIT = 1024;
+
+    private final String webhookUrl;
+    private final boolean enabled;
+    private final int timeout;
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
+
+    public DiscordWebhookAdapter(
+            @Value("${discord.webhook-url:}") String webhookUrl,
+            @Value("${discord.enabled:true}") boolean enabled,
+            @Value("${discord.timeout:10000}") int timeout) {
+        this.webhookUrl = webhookUrl;
+        this.enabled = enabled;
+        this.timeout = timeout;
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(timeout))
+                .build();
+        this.objectMapper = new ObjectMapper();
+    }
+
+    @Override
+    public void pushDigest(DigestBatch batch) {
+        if (!enabled) {
+            log.info("Discord webhook is disabled, skipping push");
+            return;
+        }
+
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            log.warn("Discord webhook URL not configured, skipping push");
+            return;
+        }
+
+        try {
+            DiscordWebhook webhook = buildWebhook(batch);
+            sendWebhook(webhook);
+            log.info("Successfully pushed digest to Discord");
+        } catch (Exception e) {
+            log.error("Failed to push digest to Discord", e);
+        }
+    }
+
+    private DiscordWebhook buildWebhook(DigestBatch batch) {
+        DiscordWebhook webhook = new DiscordWebhook();
+
+        Embed embed = new Embed();
+        embed.title = "📊 X Timeline Digest - 精选摘要";
+        embed.color = 5814783; // Blue color
+
+        // Description with time and stats
+        long totalEngagement = batch.getAllTweets().stream()
+                .mapToLong(t -> t.getLikeCount() + t.getRetweetCount() + t.getReplyCount())
+                .sum();
+
+        embed.description = String.format(
+                "⏰ **时间段**: %s - %s\n📈 **已处理**: %d 条推文 | **总互动**: %s",
+                batch.getStartTime().format(TIME_FORMATTER),
+                batch.getEndTime().format(TIME_FORMATTER),
+                batch.getAllTweets().size(),
+                formatNumber(totalEngagement));
+
+        // Top 3 tweets
+        embed.fields = new ArrayList<>();
+        for (int i = 0; i < Math.min(3, batch.getTop3().size()); i++) {
+            Tweet tweet = batch.getTop3().get(i);
+            String fieldValue = buildTop3Field(tweet, i + 1);
+
+            EmbedField field = new EmbedField();
+            field.name = getNumberEmoji(i + 1) + " Top " + (i + 1);
+            field.value = truncate(fieldValue, DISCORD_FIELD_LIMIT);
+            field.inline = false;
+            embed.fields.add(field);
+        }
+
+        // Topics
+        if (!batch.getClusters().isEmpty()) {
+            StringBuilder topicsValue = new StringBuilder();
+            for (TopicCluster cluster : batch.getClusters()) {
+                topicsValue.append(cluster.getTopicName())
+                        .append(" (").append(cluster.size()).append("条)\n");
+            }
+
+            EmbedField topicsField = new EmbedField();
+            topicsField.name = "📚 主题分布";
+            topicsField.value = truncate(topicsValue.toString(), DISCORD_FIELD_LIMIT);
+            topicsField.inline = false;
+            embed.fields.add(topicsField);
+        }
+
+        // Overview
+        EmbedField overviewField = new EmbedField();
+        overviewField.name = "💭 趋势洞察";
+        overviewField.value = truncate(batch.getOverviewSummary(), DISCORD_FIELD_LIMIT);
+        overviewField.inline = false;
+        embed.fields.add(overviewField);
+
+        // Footer
+        embed.footer = new EmbedFooter();
+        embed.footer.text = "Generated by X Timeline Digest Bot";
+
+        webhook.embeds = List.of(embed);
+        return webhook;
+    }
+
+    private String buildTop3Field(Tweet tweet, int rank) {
+        StringBuilder sb = new StringBuilder();
+
+        // Author and time
+        sb.append("👤 **").append(tweet.getAuthor()).append("** | ")
+                .append(getRelativeTime(tweet.getCreatedAt())).append("\n");
+
+        // Summary or text preview
+        String content = tweet.getSummary() != null && !tweet.getSummary().isBlank()
+                ? tweet.getSummary()
+                : extractTitle(tweet.getText());
+
+        sb.append("💡 ").append(content).append("\n");
+
+        // Engagement
+        sb.append("📊 ")
+                .append(formatNumber(tweet.getLikeCount())).append(" ❤️ · ")
+                .append(formatNumber(tweet.getRetweetCount())).append(" 🔄 · ")
+                .append(formatNumber(tweet.getReplyCount())).append(" 💬\n");
+
+        // Link
+        if (tweet.getUrl() != null && !tweet.getUrl().isBlank()) {
+            sb.append("🔗 [查看详情](").append(tweet.getUrl()).append(")");
+        }
+
+        return sb.toString();
+    }
+
+    private void sendWebhook(DiscordWebhook webhook) throws Exception {
+        String requestBody = objectMapper.writeValueAsString(webhook);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(webhookUrl))
+                .header("Content-Type", "application/json")
+                .timeout(Duration.ofMillis(timeout))
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new RuntimeException("Discord webhook returned " + response.statusCode() + ": " + response.body());
+        }
+    }
+
+    private String getNumberEmoji(int num) {
+        return switch (num) {
+            case 1 -> "1️⃣";
+            case 2 -> "2️⃣";
+            case 3 -> "3️⃣";
+            default -> num + ".";
+        };
+    }
+
+    private String extractTitle(String text) {
+        if (text == null || text.isEmpty())
+            return "无标题";
+
+        int period = text.indexOf('。');
+        int end = text.length();
+        if (period > 0 && period < 100)
+            end = Math.min(end, period + 1);
+
+        String title = text.substring(0, Math.min(end, 150));
+        if (end < text.length() && title.length() >= 150) {
+            title += "...";
+        }
+
+        return title;
+    }
+
+    private String getRelativeTime(OffsetDateTime time) {
+        Duration duration = Duration.between(time, OffsetDateTime.now());
+        long hours = duration.toHours();
+        long minutes = duration.toMinutes();
+
+        if (hours > 24)
+            return (hours / 24) + "天前";
+        else if (hours > 0)
+            return hours + "小时前";
+        else if (minutes > 0)
+            return minutes + "分钟前";
+        else
+            return "刚刚";
+    }
+
+    private String formatNumber(long num) {
+        if (num >= 1000000)
+            return String.format("%.1fM", num / 1000000.0);
+        else if (num >= 1000)
+            return String.format("%.1fK", num / 1000.0);
+        return String.valueOf(num);
+    }
+
+    private String truncate(String text, int maxLength) {
+        if (text == null)
+            return "";
+        if (text.length() <= maxLength)
+            return text;
+        return text.substring(0, maxLength - 3) + "...";
+    }
+
+    // Discord webhook DTOs
+    static class DiscordWebhook {
+        public List<Embed> embeds;
+    }
+
+    static class Embed {
+        public String title;
+        public String description;
+        public Integer color;
+        public List<EmbedField> fields;
+        public EmbedFooter footer;
+    }
+
+    static class EmbedField {
+        public String name;
+        public String value;
+        public Boolean inline;
+    }
+
+    static class EmbedFooter {
+        public String text;
+    }
+}

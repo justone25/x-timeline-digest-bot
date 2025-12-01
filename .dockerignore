@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+*.iml
+*.ipr
+*.iws
+
+# Build artifacts
+target/
+*.jar
+*.war
+*.ear
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Local config
+application.properties
+cookies.json
+*.json.local
+.env
+
+# Documentation
+*.md
+!DEPLOYMENT.md
+
+# CI/CD
+.github
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

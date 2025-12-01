@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  x-digest-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: x-timeline-digest-bot:latest
+    container_name: x-digest-bot
+    restart: unless-stopped
+
+    # Environment variables - configure these in your GUI or .env file
+    environment:
+      - KIMI_API_KEY=${KIMI_API_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - TWITTER_COOKIES_PATH=/app/config/cookies.json
+      - TWITTER_HEADLESS=true
+      - KIMI_MODEL=${KIMI_MODEL:-kimi-k2-turbo-preview}
+      - TZ=Asia/Shanghai
+      - JAVA_OPTS=-Xmx512m -Xms256m
+
+    # Mount cookies.json from host
+    volumes:
+      - /home/x-digest-bot/cookies.json:/app/config/cookies.json:ro
+      # Optional: Mount logs
+      # - ./logs:/app/logs
+
+      # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M

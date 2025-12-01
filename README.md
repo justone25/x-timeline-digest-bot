@@ -53,6 +53,22 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
 docker-compose up -d
 ```
 
+## 🗺️ Roadmap
+
+- [ ] **Advanced Source Management**
+  - Support fetching from specific X Lists (high S/N ratio)
+  - Monitor specific users or keywords
+- **Reporting & Archiving**
+  - Weekly/Monthly trend reports
+  - Sync high-value content to Notion/Obsidian
+- **Web Dashboard**
+  - Cookie file management & auto-renewal
+  - Subscription list management
+  - Prompt engineering UI
+- **More Channels**
+  - Telegram Bot integration
+  - Email Newsletter
+
 ## 📄 License
 
 MIT
